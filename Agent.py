@@ -53,6 +53,12 @@ COMMANDS = [
     "id", "rm", "mv"
 ]
 
+ALLOWED_DIRECTORIES = {
+    "Desktop": os.path.expanduser("~/Desktop"),
+    "Documents": os.path.expanduser("~/Documents"),
+    "Downloads": os.path.expanduser("~/Downloads"),
+}
+
 SYSTEM_PROMPT = """You are Dadarzz Agent, a smart macOS assistant that can both chat and execute terminal commands.
 
 You have two response modes — pick the right one based on the user's intent:
@@ -152,12 +158,56 @@ def init_client(api_key):
 # ==========================
 # EXECUTION
 # ==========================
+def detect_organization_intent(user_input: str) -> bool:
+    """
+    Detect if user wants to organize/sort/clean files.
+    """
+    keywords = ["organize", "sort", "clean", "arrange", "tidy", "structure"]
+    user_lower = user_input.lower()
+    return any(keyword in user_lower for keyword in keywords)
+
+def requires_confirmation(command: str) -> bool:
+    """
+    Detect if a shell command contains dangerous operations
+    like rm or mv anywhere in chained commands.
+    """
+    # Split by common shell chain operators
+    parts = re.split(r"\s*(?:&&|\|\||;)\s*", command)
+
+    for part in parts:
+        tokens = part.strip().split()
+        if not tokens:
+            continue
+        if tokens[0] in ["rm", "mv"]:
+            return True
+
+    return False
+
+def is_path_allowed(path: str) -> bool:
+    """
+    Check if a path is within ALLOWED_DIRECTORIES.
+    """
+    abs_path = os.path.abspath(os.path.expanduser(path))
+    for allowed_dir in ALLOWED_DIRECTORIES.values():
+        allowed_abs = os.path.abspath(allowed_dir)
+        if abs_path.startswith(allowed_abs):
+            return True
+    return False
+
 def execution(command):
     first_cmd = command.strip().split()[0] if command.strip() else ""
     if not first_cmd:
         return "Error: Empty command."
     if first_cmd not in COMMANDS:
         return f"Error: Command '{first_cmd}' not allowed."
+    
+    # Validate that paths in command are within allowed directories
+    tokens = command.split()
+    for token in tokens:
+        if "/" in token or "./" in token or "~/" in token:
+            if not is_path_allowed(token):
+                return f"Error: Access to '{token}' is not allowed."
+    
     try:
         result = subprocess.run(
             command, shell=True, capture_output=True,
@@ -238,6 +288,13 @@ def chat():
         if "chat" in payload:
             events.append({"type": "chat", "content": payload["chat"]})
 
+        elif detect_organization_intent(user_input):
+            events.append({
+                "type": "choose",
+                "content": "Which folder would you like to organize?",
+                "options": list(ALLOWED_DIRECTORIES.keys())
+            })
+
         elif "recon" in payload:
             recon_cmd = payload["recon"]
             recon_output = execution(recon_cmd)
@@ -258,8 +315,7 @@ def chat():
                 if "command" in data2:
                     # rm/mv: flag for frontend confirmation
                     cmd = data2["command"]
-                    first = cmd.strip().split()[0]
-                    if first in ["rm", "mv"]:
+                    if requires_confirmation(cmd):
                         events.append({"type": "confirm", "command": cmd})
                     else:
                         output = execution(cmd)
@@ -267,8 +323,7 @@ def chat():
 
         elif "command" in payload:
             cmd = payload["command"]
-            first = cmd.strip().split()[0]
-            if first in ["rm", "mv"]:
+            if requires_confirmation(cmd):
                 events.append({"type": "confirm", "command": cmd})
             else:
                 output = execution(cmd)
@@ -292,6 +347,65 @@ def confirm_run():
         return jsonify({"events": [{"type": "info", "content": "Command cancelled."}]})
     output = execution(command)
     return jsonify({"events": [{"type": "ran", "command": command, "output": output}]})
+
+@app.route("/api/choose-folder", methods=["POST"])
+def choose_folder():
+    global client
+    data = request.get_json()
+    folder_name = data.get("folder", "").strip()
+    
+    if folder_name not in ALLOWED_DIRECTORIES:
+        return jsonify({"error": "Invalid folder selection."}), 400
+    
+    folder_path = ALLOWED_DIRECTORIES[folder_name]
+    
+    # Add user's choice to conversation
+    conversation_history.append({
+        "role": "user",
+        "content": f"User chose to organize: {folder_name}"
+    })
+    
+    # Ask AI to generate organization commands
+    prompt = f"User wants to organize {folder_name} ({folder_path}). Create shell commands to organize files by type into subdirectories. Respond with JSON."
+    
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": "You are Dadarzz Agent. Respond only with JSON."},
+                *conversation_history,
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        ai_response = completion.choices[0].message.content.strip()
+        conversation_history.append({"role": "assistant", "content": ai_response})
+        
+        json_candidate = extract_first_json_object(ai_response)
+        events = []
+        
+        if json_candidate:
+            try:
+                payload = safe_json_parse(json_candidate)
+                if "command" in payload:
+                    cmd = payload["command"]
+                    if requires_confirmation(cmd):
+                        events.append({"type": "confirm", "command": cmd})
+                    else:
+                        output = execution(cmd)
+                        events.append({"type": "ran", "command": cmd, "output": output})
+                elif "chat" in payload:
+                    events.append({"type": "chat", "content": payload["chat"]})
+            except json.JSONDecodeError:
+                events.append({"type": "chat", "content": ai_response})
+        else:
+            events.append({"type": "chat", "content": ai_response})
+        
+        return jsonify({"events": events})
+    
+    except Exception as e:
+        log.exception("Error in /api/choose-folder")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/clear", methods=["POST"])
 def clear_memory():

@@ -20,6 +20,10 @@ const confirmCmd     = document.getElementById("confirm-cmd");
 const confirmYes     = document.getElementById("confirm-yes");
 const confirmNo      = document.getElementById("confirm-no");
 
+const chooseOverlay = document.getElementById("choose-overlay");
+const chooseLabel   = document.getElementById("choose-label");
+const chooseOptions = document.getElementById("choose-options");
+
 // ── Helpers ──────────────────────────────────────────────────
 function scrollBottom() {
   const area = document.getElementById("chat-area");
@@ -130,6 +134,8 @@ function renderEvents(events) {
       appendInfo(ev.content);
     } else if (ev.type === "confirm") {
       showConfirm(ev.command);
+    } else if (ev.type === "choose") {
+      showChoose(ev.content, ev.options);
     } else if (ev.type === "error") {
       appendError(ev.content);
     }
@@ -163,6 +169,37 @@ function showConfirm(command) {
     appendInfo("Command cancelled.");
     setStatus("Ready", "green");
   };
+}
+
+// ── Choose Dialog ─────────────────────────────────────────────
+function showChoose(label, options) {
+  chooseLabel.textContent = label;
+  chooseOptions.innerHTML = "";
+  
+  for (const option of options) {
+    const btn = document.createElement("button");
+    btn.className = "choose-btn";
+    btn.textContent = option;
+    btn.onclick = async () => {
+      chooseOverlay.classList.add("hidden");
+      setStatus("Processing…", "blue");
+      try {
+        const res = await fetch("/api/choose-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folder: option })
+        });
+        const data = await res.json();
+        renderEvents(data.events || []);
+      } catch(e) {
+        appendError(e.message);
+      }
+      setStatus("Ready", "green");
+    };
+    chooseOptions.appendChild(btn);
+  }
+  
+  chooseOverlay.classList.remove("hidden");
 }
 
 // ── Send Message ──────────────────────────────────────────────
