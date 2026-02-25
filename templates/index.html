@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dadarzz Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- API Key Gate Overlay -->
+  <div id="key-overlay" class="{{ 'hidden' if has_api_key else '' }}">
+    <div class="key-modal">
+      <div class="key-glyph">⬡</div>
+      <h2>Dadarzz Agent</h2>
+      <p>Paste your <strong>Groq API key</strong> to get started.<br>It's saved locally — never sent anywhere else.</p>
+      <input type="password" id="api-key-input" placeholder="gsk_••••••••••••••••••••••••" autocomplete="off" spellcheck="false"/>
+      <button id="save-key-btn">Unlock  →</button>
+      <a href="https://console.groq.com/keys" target="_blank" class="key-link">Get a free key at console.groq.com ↗</a>
+    </div>
+  </div>
+
+  <!-- Main Shell -->
+  <div class="shell">
+
+    <!-- Titlebar -->
+    <header class="titlebar">
+      <div class="title-left">
+        <span class="title-glyph">✦</span>
+        <span class="title-text">Dadarzz Agent</span>
+        <span class="title-tag">M1</span>
+      </div>
+      <div class="title-right">
+        <button id="clear-btn" class="ghost-btn">Clear Memory</button>
+        <button id="change-key-btn" class="ghost-btn">API Key</button>
+      </div>
+    </header>
+
+    <div class="divider"></div>
+
+    <!-- Chat Area -->
+    <main id="chat-area">
+      <div id="messages">
+        <div class="msg info-msg">
+          <span class="info-dot">◆</span>
+          Dadarzz Agent ready — chat naturally or give me a task on your Mac.
+        </div>
+      </div>
+    </main>
+
+    <div class="divider"></div>
+
+    <!-- Input Bar -->
+    <footer class="input-bar">
+      <div class="input-wrap">
+        <textarea id="user-input" rows="1" placeholder="Ask me anything or give me a task…" spellcheck="false"></textarea>
+        <button id="send-btn">
+          <span id="send-label">Send</span>
+          <span class="send-arrow">↵</span>
+        </button>
+      </div>
+      <div id="status-bar">
+        <span id="status-dot" class="dot green"></span>
+        <span id="status-text">Ready</span>
+      </div>
+    </footer>
+
+  </div><!-- /shell -->
+
+  <!-- Confirm Dialog -->
+  <div id="confirm-overlay" class="hidden">
+    <div class="confirm-modal">
+      <div class="confirm-icon">⚠</div>
+      <p class="confirm-label">Destructive command — are you sure?</p>
+      <code id="confirm-cmd"></code>
+      <div class="confirm-btns">
+        <button id="confirm-yes" class="confirm-run">Run It</button>
+        <button id="confirm-no" class="confirm-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
