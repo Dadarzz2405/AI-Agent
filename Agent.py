@@ -4,6 +4,8 @@ import os
 import sys
 import logging
 import re
+import shlex
+from typing import List, Tuple
 import threading
 import webbrowser
 import time
@@ -50,7 +52,7 @@ COMMANDS = [
     "ls", "pwd", "whoami", "date", "cal", "echo",
     "mkdir", "touch", "cat", "head", "tail", "wc",
     "uname", "uptime", "df", "du", "open", "which",
-    "id", "rm", "mv"
+    "id", "rm", "mv", "find"
 ]
 
 ALLOWED_DIRECTORIES = {
@@ -80,25 +82,93 @@ RULES:
 
 client = None
 conversation_history = []
+MAX_HISTORY_MESSAGES = 24
+CONTEXT_TOKEN_WARN_AT = 5000
+CONTEXT_TOKEN_HARD_LIMIT = 6500
 
 # ==========================
 # JSON PARSING HELPER
 # ==========================
+def _repair_invalid_json_escapes(json_str: str) -> str:
+    """
+    Repair invalid escape sequences inside JSON strings.
+    - "\\ " becomes " " for shell-escaped spaces.
+    - Unknown escapes like "\\D" become "\\\\D" to preserve literal backslash.
+    """
+    valid_escapes = {'"', "\\", "/", "b", "f", "n", "r", "t", "u"}
+    out = []
+    in_string = False
+    i = 0
+
+    while i < len(json_str):
+        ch = json_str[i]
+
+        if ch == '"':
+            # Count preceding backslashes to detect escaped quote
+            backslashes = 0
+            j = i - 1
+            while j >= 0 and json_str[j] == "\\":
+                backslashes += 1
+                j -= 1
+            if backslashes % 2 == 0:
+                in_string = not in_string
+            out.append(ch)
+            i += 1
+            continue
+
+        if in_string and ch == "\\" and i + 1 < len(json_str):
+            nxt = json_str[i + 1]
+            if nxt == " ":
+                # Convert shell-escaped spaces to literal spaces for JSON validity.
+                out.append(" ")
+                i += 2
+                continue
+            if nxt not in valid_escapes:
+                out.append("\\\\")
+                out.append(nxt)
+                i += 2
+                continue
+
+        out.append(ch)
+        i += 1
+
+    return "".join(out)
+
 def safe_json_parse(json_str):
     """Safely parse JSON from LLM response handling literal backslashes."""
     try:
         return json.loads(json_str)
     except json.JSONDecodeError:
-        # Try fixing common escaping issues from model output:
-        # - invalid escape sequences (e.g. "\D" in paths)
-        # - backslash-escaped spaces often used in shell commands
-        fixed = json_str.replace('\\ ', ' ')
-        fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', fixed)
+        fixed = _repair_invalid_json_escapes(json_str)
         try:
             return json.loads(fixed)
         except json.JSONDecodeError:
             # If still failing, raise the original error
             raise
+
+def estimate_message_tokens(messages: List[dict]) -> int:
+    """Very rough token estimate to prevent context overflow."""
+    total_chars = len(SYSTEM_PROMPT)
+    for msg in messages:
+        total_chars += len(msg.get("content", "")) + 16
+    return max(1, total_chars // 4)
+
+def trim_conversation_history() -> bool:
+    """
+    Trim oldest messages if conversation grows too large.
+    Returns True if trimming occurred.
+    """
+    global conversation_history
+    trimmed = False
+    while (
+        len(conversation_history) > MAX_HISTORY_MESSAGES
+        or estimate_message_tokens(conversation_history) > CONTEXT_TOKEN_HARD_LIMIT
+    ):
+        if not conversation_history:
+            break
+        conversation_history.pop(0)
+        trimmed = True
+    return trimmed
 
 def extract_first_json_object(text):
     """Return first balanced JSON object from text, respecting quoted strings."""
@@ -195,14 +265,18 @@ def is_path_allowed(path: str) -> bool:
     return False
 
 def execution(command):
-    first_cmd = command.strip().split()[0] if command.strip() else ""
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError as e:
+        return f"Error: Invalid command syntax ({str(e)})."
+
+    first_cmd = tokens[0] if tokens else ""
     if not first_cmd:
         return "Error: Empty command."
     if first_cmd not in COMMANDS:
         return f"Error: Command '{first_cmd}' not allowed."
     
     # Validate that paths in command are within allowed directories
-    tokens = command.split()
     for token in tokens:
         if "/" in token or "./" in token or "~/" in token:
             if not is_path_allowed(token):
@@ -220,8 +294,20 @@ def execution(command):
 # ==========================
 # LLM
 # ==========================
-def ask_llm(user_message):
+def ask_llm(user_message) -> Tuple[str, List[str]]:
     conversation_history.append({"role": "user", "content": user_message})
+    warnings = []
+    if trim_conversation_history():
+        warnings.append(
+            "Older messages were trimmed to avoid model context overflow."
+        )
+
+    current_tokens = estimate_message_tokens(conversation_history)
+    if current_tokens >= CONTEXT_TOKEN_WARN_AT:
+        warnings.append(
+            "Conversation is getting long. If responses degrade, clear memory and continue."
+        )
+
     try:
         completion = client.chat.completions.create(
             model=MODEL,
@@ -233,7 +319,7 @@ def ask_llm(user_message):
         )
         response = completion.choices[0].message.content.strip()
         conversation_history.append({"role": "assistant", "content": response})
-        return response
+        return response, warnings
     except Exception:
         conversation_history.pop()
         raise
@@ -272,18 +358,20 @@ def chat():
         return jsonify({"error": "Empty message."}), 400
 
     try:
-        ai_response = ask_llm(user_input)
+        ai_response, warnings = ask_llm(user_input)
         json_candidate = extract_first_json_object(ai_response)
+        warning_events = [{"type": "info", "content": w} for w in warnings]
 
         if not json_candidate:
-            return jsonify({"events": [{"type": "chat", "content": ai_response}]})
+            return jsonify({"events": warning_events + [{"type": "chat", "content": ai_response}]})
 
         try:
             payload = safe_json_parse(json_candidate)
         except json.JSONDecodeError:
             log.warning("Could not parse model JSON payload: %s", json_candidate)
-            return jsonify({"events": [{"type": "chat", "content": ai_response}]})
+            return jsonify({"events": warning_events + [{"type": "chat", "content": ai_response}]})
         events = []
+        events.extend(warning_events)
 
         if "chat" in payload:
             events.append({"type": "chat", "content": payload["chat"]})
@@ -304,7 +392,8 @@ def chat():
                 "role": "user",
                 "content": f"Filesystem result:\n{recon_output}\nNow execute the correct command."
             })
-            ai_response2 = ask_llm("Execute based on what you found.")
+            ai_response2, warnings2 = ask_llm("Execute based on what you found.")
+            events.extend({"type": "info", "content": w} for w in warnings2)
             json_candidate2 = extract_first_json_object(ai_response2)
             if json_candidate2:
                 try:
@@ -364,6 +453,13 @@ def choose_folder():
         "role": "user",
         "content": f"User chose to organize: {folder_name}"
     })
+    warnings = []
+    if trim_conversation_history():
+        warnings.append("Older messages were trimmed to avoid model context overflow.")
+    if estimate_message_tokens(conversation_history) >= CONTEXT_TOKEN_WARN_AT:
+        warnings.append(
+            "Conversation is getting long. If responses degrade, clear memory and continue."
+        )
     
     # Ask AI to generate organization commands
     prompt = f"User wants to organize {folder_name} ({folder_path}). Create shell commands to organize files by type into subdirectories. Respond with JSON."
@@ -382,7 +478,7 @@ def choose_folder():
         conversation_history.append({"role": "assistant", "content": ai_response})
         
         json_candidate = extract_first_json_object(ai_response)
-        events = []
+        events = [{"type": "info", "content": w} for w in warnings]
         
         if json_candidate:
             try:
