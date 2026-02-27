@@ -1,44 +1,50 @@
-name: Build Unix Executable
+name: Build All Platforms
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_type:
-        description: 'Release type (debug/release)'
-        required: true
-        default: 'release'
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    
+
+  build-mac:
+    runs-on: macos-14
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup environment
-        run: |
-          # Add your dependency installation here
-          # Example: sudo apt-get install -y build-essential
-          
-      - name: Build executable
-        run: |
-          # Replace with your actual build command
-          # Examples:
-          # make build
-          # cargo build --release
-          # ./build.sh
-          chmod +x ./build.sh
-          ./build.sh
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          name: unix-executable
-          path: ./dist/  # Adjust path to where your executable is built
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+          python-version: '3.11'
+      - run: pip install pyinstaller flask groq httpx
+      - run: pyinstaller dadarzz-mac.spec
+      - uses: actions/upload-artifact@v4
         with:
-          files: ./dist/**/*
+          name: dadarzz-mac
+          path: dist/dadarzz-agent
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyinstaller flask groq httpx
+      - run: pyinstaller dadarzz-windows.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dadarzz-windows
+          path: dist\dadarzz-agent.exe
+
+  build-linux:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyinstaller flask groq httpx
+      - run: pyinstaller dadarzz-linux.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dadarzz-linux
+          path: dist/dadarzz-agent
