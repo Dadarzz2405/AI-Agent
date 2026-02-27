@@ -1,0 +1,50 @@
+name: Build All Platforms
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+
+  build-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyinstaller flask groq httpx
+      - run: pyinstaller dadarzz-mac.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dadarzz-mac
+          path: dist/dadarzz-agent
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyinstaller flask groq httpx
+      - run: pyinstaller dadarzz-windows.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dadarzz-windows
+          path: dist\dadarzz-agent.exe
+
+  build-linux:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyinstaller flask groq httpx
+      - run: pyinstaller dadarzz-linux.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dadarzz-linux
+          path: dist/dadarzz-agent
