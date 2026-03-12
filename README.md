@@ -1,7 +1,8 @@
 # Dadarzz Agent
 
 Local macOS AI assistant with a Flask web UI, packaged as a single executable for Apple Silicon (M1/M2/M3).
-
+# Documentation
+https://github.com/Dadarzz2405/AI-Agent/blob/main/DOCUMENTATION.md
 ## For Non-Developers (Install in 2 Minutes)
 
 Use this if someone sent you the `dadarzz-agent` file.
