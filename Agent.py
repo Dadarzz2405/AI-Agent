@@ -18,8 +18,9 @@ from groq import Groq as g
 # ==========================
 PLATFORM = platform.system()  # "Darwin", "Windows", "Linux"
 IS_WINDOWS = PLATFORM == "Windows"
-IS_MAC     = PLATFORM == "Darwin"
-IS_LINUX   = PLATFORM == "Linux"
+IS_MAC = PLATFORM == "Darwin"
+IS_LINUX = PLATFORM == "Linux"
+
 
 # ==========================
 # RESOURCE PATH (PyInstaller)
@@ -28,6 +29,7 @@ def resource_path(relative_path):
     if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
+
 
 # ==========================
 # FLASK APP INIT
@@ -44,34 +46,65 @@ app = Flask(
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler("app.log"), logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
 # ==========================
 # CONSTANTS
 # ==========================
-MODEL       = "llama-3.3-70b-versatile"
+MODEL = "llama-3.3-70b-versatile"
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".dadarzz_config.json")
 
 # ── Per-platform allowed commands ──
 if IS_WINDOWS:
     COMMANDS = [
-        "dir", "echo", "cd", "type", "copy", "move",
-        "del", "mkdir", "rmdir", "where", "whoami",
-        "hostname", "date", "time", "ver", "vol",
-        "tree", "find", "findstr", "attrib",
+        "dir",
+        "echo",
+        "cd",
+        "type",
+        "copy",
+        "move",
+        "del",
+        "mkdir",
+        "rmdir",
+        "where",
+        "whoami",
+        "hostname",
+        "date",
+        "time",
+        "ver",
+        "vol",
+        "tree",
+        "find",
+        "findstr",
+        "attrib",
     ]
 else:
     # macOS + Linux
     COMMANDS = [
-        "ls", "pwd", "whoami", "date", "cal", "echo",
-        "mkdir", "touch", "cat", "head", "tail", "wc",
-        "uname", "uptime", "df", "du", "open", "which",
-        "id", "rm", "mv", "find",
+        "ls",
+        "pwd",
+        "whoami",
+        "date",
+        "cal",
+        "echo",
+        "mkdir",
+        "touch",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "uname",
+        "uptime",
+        "df",
+        "du",
+        "open",
+        "which",
+        "id",
+        "rm",
+        "mv",
+        "find",
     ]
 
 # ── Per-platform destructive commands (require confirmation) ──
@@ -82,28 +115,28 @@ else:
 
 # ── Per-platform shell ──
 if IS_WINDOWS:
-    SHELL_EXECUTABLE = None          # subprocess uses cmd.exe by default
+    SHELL_EXECUTABLE = None  # subprocess uses cmd.exe by default
 else:
     SHELL_EXECUTABLE = "/bin/zsh" if IS_MAC else "/bin/bash"
 
 # ── Allowed directories (works on all platforms via expanduser) ──
 ALLOWED_DIRECTORIES = {
-    "Desktop":   os.path.expanduser("~/Desktop"),
+    "Desktop": os.path.expanduser("~/Desktop"),
     "Documents": os.path.expanduser("~/Documents"),
     "Downloads": os.path.expanduser("~/Downloads"),
 }
 
 # ── System prompt adapts to OS ──
 OS_LABEL = {
-    "Darwin":  "macOS",
+    "Darwin": "macOS",
     "Windows": "Windows",
-    "Linux":   "Linux",
+    "Linux": "Linux",
 }.get(PLATFORM, PLATFORM)
 
 COMMAND_EXAMPLES = {
-    "Darwin":  'move files: { "command": "mv ~/Desktop/file.txt ~/Documents/" }',
+    "Darwin": 'move files: { "command": "mv ~/Desktop/file.txt ~/Documents/" }',
     "Windows": 'move files: { "command": "move %USERPROFILE%\\Desktop\\file.txt %USERPROFILE%\\Documents\\" }',
-    "Linux":   'move files: { "command": "mv ~/Desktop/file.txt ~/Documents/" }',
+    "Linux": 'move files: { "command": "mv ~/Desktop/file.txt ~/Documents/" }',
 }.get(PLATFORM, "")
 
 SYSTEM_PROMPT = f"""You are Dadarzz Agent, a smart {OS_LABEL} assistant that can both chat and execute terminal commands.
@@ -129,9 +162,10 @@ RULES:
 
 client = None
 conversation_history = []
-MAX_HISTORY_MESSAGES  = 24
-CONTEXT_TOKEN_WARN_AT  = 5000
+MAX_HISTORY_MESSAGES = 24
+CONTEXT_TOKEN_WARN_AT = 5000
 CONTEXT_TOKEN_HARD_LIMIT = 6500
+
 
 # ==========================
 # JSON PARSING HELPERS
@@ -169,6 +203,7 @@ def _repair_invalid_json_escapes(json_str: str) -> str:
         i += 1
     return "".join(out)
 
+
 def safe_json_parse(json_str):
     try:
         return json.loads(json_str)
@@ -179,11 +214,13 @@ def safe_json_parse(json_str):
         except json.JSONDecodeError:
             raise
 
+
 def estimate_message_tokens(messages: List[dict]) -> int:
     total_chars = len(SYSTEM_PROMPT)
     for msg in messages:
         total_chars += len(msg.get("content", "")) + 16
     return max(1, total_chars // 4)
+
 
 def trim_conversation_history() -> bool:
     global conversation_history
@@ -198,13 +235,14 @@ def trim_conversation_history() -> bool:
         trimmed = True
     return trimmed
 
+
 def extract_first_json_object(text):
     start = text.find("{")
     if start == -1:
         return None
     in_string = False
-    escaped   = False
-    depth     = 0
+    escaped = False
+    depth = 0
     for i in range(start, len(text)):
         ch = text[i]
         if escaped:
@@ -223,8 +261,9 @@ def extract_first_json_object(text):
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return text[start:i + 1]
+                return text[start : i + 1]
     return None
+
 
 # ==========================
 # API KEY MANAGEMENT
@@ -235,14 +274,17 @@ def load_api_key():
             return json.load(f).get("api_key")
     return None
 
+
 def save_api_key(api_key):
     with open(CONFIG_FILE, "w") as f:
         json.dump({"api_key": api_key}, f)
+
 
 def init_client(api_key):
     global client
     client = g(api_key=api_key)
     log.info("Groq client initialized.")
+
 
 # ==========================
 # EXECUTION
@@ -250,6 +292,7 @@ def init_client(api_key):
 def detect_organization_intent(user_input: str) -> bool:
     keywords = ["organize", "sort", "clean", "arrange", "tidy", "structure"]
     return any(kw in user_input.lower() for kw in keywords)
+
 
 def requires_confirmation(command: str) -> bool:
     """Check if command contains any destructive operations."""
@@ -270,6 +313,7 @@ def requires_confirmation(command: str) -> bool:
             return True
     return False
 
+
 def is_path_allowed(path: str) -> bool:
     abs_path = os.path.abspath(os.path.expanduser(path))
     for allowed_dir in ALLOWED_DIRECTORIES.values():
@@ -277,6 +321,7 @@ def is_path_allowed(path: str) -> bool:
         if abs_path.startswith(allowed_abs):
             return True
     return False
+
 
 def get_first_token(command: str) -> str:
     """Extract the base command name, stripping path separators."""
@@ -286,9 +331,12 @@ def get_first_token(command: str) -> str:
         else:
             token = shlex.split(command, posix=True)[0]
         # Strip any path prefix (e.g. C:\Windows\System32\cmd.exe → cmd.exe)
-        return os.path.basename(token).lower() if IS_WINDOWS else os.path.basename(token)
+        return (
+            os.path.basename(token).lower() if IS_WINDOWS else os.path.basename(token)
+        )
     except (ValueError, IndexError):
         return ""
+
 
 def execution(command: str) -> str:
     first_cmd = get_first_token(command)
@@ -298,7 +346,7 @@ def execution(command: str) -> str:
 
     # Normalise for Windows comparison (commands are case-insensitive)
     check_cmd = first_cmd.lower() if IS_WINDOWS else first_cmd
-    allowed   = [c.lower() for c in COMMANDS] if IS_WINDOWS else COMMANDS
+    allowed = [c.lower() for c in COMMANDS] if IS_WINDOWS else COMMANDS
 
     if check_cmd not in allowed:
         return f"Error: Command '{first_cmd}' not allowed."
@@ -320,30 +368,116 @@ def execution(command: str) -> str:
             shell=True,
             capture_output=True,
             text=True,
-            executable=SHELL_EXECUTABLE,   # None on Windows → uses cmd.exe
+            executable=SHELL_EXECUTABLE,  # None on Windows → uses cmd.exe
         )
         return result.stdout if result.stdout else result.stderr
     except Exception as e:
         return f"Error: {str(e)}"
 
-# ==========================
-# LLM
-# ==========================
+
+def simplify_output(command: str, output: str) -> str:
+    """Convert raw terminal output to user-friendly messages."""
+    if not output or output.startswith("Error"):
+        return output
+
+    first_cmd = get_first_token(command).lower()
+    lines = output.strip().split("\n")
+
+    # df - disk usage
+    if first_cmd == "df":
+        if "Filesystem" in output:
+            summary = "📊 Disk Space Summary:\n"
+            for line in lines[1:]:
+                parts = line.split()
+                if len(parts) >= 6:
+                    try:
+                        total = round(int(parts[1]) / 1024 / 1024, 1)
+                        used = round(int(parts[2]) / 1024 / 1024, 1)
+                        avail = round(int(parts[3]) / 1024 / 1024, 1)
+                        pct = parts[4]
+                        mount = parts[5]
+                        summary += f"• {mount}: {used}GB used of {total}GB ({pct})\n"
+                    except (ValueError, IndexError):
+                        continue
+            return summary.strip()
+        return f"Disk usage: {output.strip()}"
+
+    # du - folder size
+    if first_cmd == "du":
+        total_size = 0
+        for line in lines:
+            parts = line.split()
+            if parts and parts[0].isdigit():
+                size_kb = int(parts[0])
+                total_size += size_kb
+        if total_size > 0:
+            if total_size > 1024 * 1024:
+                size_str = f"{round(total_size / 1024 / 1024, 1)} GB"
+            elif total_size > 1024:
+                size_str = f"{round(total_size / 1024, 1)} MB"
+            else:
+                size_str = f"{total_size} KB"
+            return f"📁 Total size: {size_str}"
+        return output.strip()[:200]
+
+    # find - file search
+    if first_cmd == "find":
+        files = [l for l in lines if l.strip()]
+        count = len(files)
+        if count == 0:
+            return "No files found matching your search."
+        if count == 1:
+            return f"✅ Found 1 file: {files[0]}"
+        if count <= 5:
+            return f"✅ Found {count} files:\n" + "\n".join(f"• {f}" for f in files)
+        return (
+            f"✅ Found {count} files. First few:\n"
+            + "\n".join(f"• {f}" for f in files[:5])
+            + f"\n...and {count - 5} more"
+        )
+
+    # ls - directory listing
+    if first_cmd == "ls":
+        count = len([l for l in lines if l.strip()])
+        if "-l" in command or "-la" in command:
+            return f"📂 {count} items in directory"
+        if count == 0:
+            return "Folder is empty."
+        return f"📂 {count} items: {' | '.join(lines[:8])}{' ...' if count > 8 else ''}"
+
+    # tree - directory tree
+    if first_cmd == "tree":
+        dirs = sum(1 for l in lines if l.endswith("/"))
+        files = sum(1 for l in lines if not l.endswith("/"))
+        return f"📁 Directory structure: {dirs} folders, {files} files"
+
+    # wc - word/line count
+    if first_cmd == "wc":
+        return f"📝 {output.strip()}"
+
+    # Default: truncate long output
+    if len(output) > 500:
+        return output[:500].strip() + "\n... (truncated)"
+    return output
+
+
 def ask_llm(user_message) -> Tuple[str, List[str]]:
     conversation_history.append({"role": "user", "content": user_message})
     warnings = []
     if trim_conversation_history():
         warnings.append("Older messages were trimmed to avoid model context overflow.")
     if estimate_message_tokens(conversation_history) >= CONTEXT_TOKEN_WARN_AT:
-        warnings.append("Conversation is getting long. If responses degrade, clear memory and continue.")
+        warnings.append(
+            "Conversation is getting long. If responses degrade, clear memory and continue."
+        )
     try:
         completion = client.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                *conversation_history
+                *conversation_history,
             ],
-            temperature=0.3
+            temperature=0.3,
         )
         response = completion.choices[0].message.content.strip()
         conversation_history.append({"role": "assistant", "content": response})
@@ -351,6 +485,7 @@ def ask_llm(user_message) -> Tuple[str, List[str]]:
     except Exception:
         conversation_history.pop()
         raise
+
 
 # ==========================
 # FLASK ROUTES
@@ -360,15 +495,17 @@ def index():
     api_key = load_api_key()
     return render_template("index.html", has_api_key=bool(api_key))
 
+
 @app.route("/api/set-key", methods=["POST"])
 def set_key():
-    data    = request.get_json()
+    data = request.get_json()
     api_key = data.get("api_key", "").strip()
     if not api_key:
         return jsonify({"error": "API key is required."}), 400
     save_api_key(api_key)
     init_client(api_key)
     return jsonify({"ok": True})
+
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
@@ -380,24 +517,28 @@ def chat():
         else:
             return jsonify({"error": "No API key configured."}), 401
 
-    data       = request.get_json()
+    data = request.get_json()
     user_input = data.get("message", "").strip()
     if not user_input:
         return jsonify({"error": "Empty message."}), 400
 
     try:
         ai_response, warnings = ask_llm(user_input)
-        json_candidate  = extract_first_json_object(ai_response)
-        warning_events  = [{"type": "info", "content": w} for w in warnings]
+        json_candidate = extract_first_json_object(ai_response)
+        warning_events = [{"type": "info", "content": w} for w in warnings]
 
         if not json_candidate:
-            return jsonify({"events": warning_events + [{"type": "chat", "content": ai_response}]})
+            return jsonify(
+                {"events": warning_events + [{"type": "chat", "content": ai_response}]}
+            )
 
         try:
             payload = safe_json_parse(json_candidate)
         except json.JSONDecodeError:
             log.warning("Could not parse model JSON payload: %s", json_candidate)
-            return jsonify({"events": warning_events + [{"type": "chat", "content": ai_response}]})
+            return jsonify(
+                {"events": warning_events + [{"type": "chat", "content": ai_response}]}
+            )
 
         events = list(warning_events)
 
@@ -405,21 +546,33 @@ def chat():
             events.append({"type": "chat", "content": payload["chat"]})
 
         elif detect_organization_intent(user_input):
-            events.append({
-                "type":    "choose",
-                "content": "Which folder would you like to organize?",
-                "options": list(ALLOWED_DIRECTORIES.keys())
-            })
+            events.append(
+                {
+                    "type": "choose",
+                    "content": "Which folder would you like to organize?",
+                    "options": list(ALLOWED_DIRECTORIES.keys()),
+                }
+            )
 
         elif "recon" in payload:
-            recon_cmd    = payload["recon"]
+            recon_cmd = payload["recon"]
             recon_output = execution(recon_cmd)
-            events.append({"type": "recon", "command": recon_cmd, "output": recon_output})
+            simplified = simplify_output(recon_cmd, recon_output)
+            events.append(
+                {
+                    "type": "recon",
+                    "command": recon_cmd,
+                    "output": recon_output,
+                    "simplified": simplified,
+                }
+            )
 
-            conversation_history.append({
-                "role":    "user",
-                "content": f"Filesystem result:\n{recon_output}\nNow execute the correct command."
-            })
+            conversation_history.append(
+                {
+                    "role": "user",
+                    "content": f"Filesystem result:\n{recon_output}\nNow execute the correct command.",
+                }
+            )
             ai_response2, warnings2 = ask_llm("Execute based on what you found.")
             events.extend({"type": "info", "content": w} for w in warnings2)
             json_candidate2 = extract_first_json_object(ai_response2)
@@ -434,7 +587,10 @@ def chat():
                         events.append({"type": "confirm", "command": cmd})
                     else:
                         output = execution(cmd)
-                        events.append({"type": "ran", "command": cmd, "output": output})
+                        simplified = simplify_output(cmd, output)
+                        events.append(
+                            {"type": "ran", "command": cmd, "output": simplified}
+                        )
 
         elif "command" in payload:
             cmd = payload["command"]
@@ -442,7 +598,8 @@ def chat():
                 events.append({"type": "confirm", "command": cmd})
             else:
                 output = execution(cmd)
-                events.append({"type": "ran", "command": cmd, "output": output})
+                simplified = simplify_output(cmd, output)
+                events.append({"type": "ran", "command": cmd, "output": simplified})
 
         else:
             events.append({"type": "chat", "content": ai_response})
@@ -453,36 +610,42 @@ def chat():
         log.exception("Error in /api/chat")
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/confirm-run", methods=["POST"])
 def confirm_run():
-    data      = request.get_json()
-    command   = data.get("command", "").strip()
+    data = request.get_json()
+    command = data.get("command", "").strip()
     confirmed = data.get("confirmed", False)
     if not confirmed:
         return jsonify({"events": [{"type": "info", "content": "Command cancelled."}]})
     output = execution(command)
-    return jsonify({"events": [{"type": "ran", "command": command, "output": output}]})
+    simplified = simplify_output(command, output)
+    return jsonify(
+        {"events": [{"type": "ran", "command": command, "output": simplified}]}
+    )
+
 
 @app.route("/api/choose-folder", methods=["POST"])
 def choose_folder():
     global client
-    data        = request.get_json()
+    data = request.get_json()
     folder_name = data.get("folder", "").strip()
 
     if folder_name not in ALLOWED_DIRECTORIES:
         return jsonify({"error": "Invalid folder selection."}), 400
 
     folder_path = ALLOWED_DIRECTORIES[folder_name]
-    conversation_history.append({
-        "role":    "user",
-        "content": f"User chose to organize: {folder_name}"
-    })
+    conversation_history.append(
+        {"role": "user", "content": f"User chose to organize: {folder_name}"}
+    )
 
     warnings = []
     if trim_conversation_history():
         warnings.append("Older messages were trimmed to avoid model context overflow.")
     if estimate_message_tokens(conversation_history) >= CONTEXT_TOKEN_WARN_AT:
-        warnings.append("Conversation is getting long. If responses degrade, clear memory and continue.")
+        warnings.append(
+            "Conversation is getting long. If responses degrade, clear memory and continue."
+        )
 
     prompt = (
         f"User wants to organize {folder_name} ({folder_path}) on {OS_LABEL}. "
@@ -494,11 +657,14 @@ def choose_folder():
         completion = client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": "You are Dadarzz Agent. Respond only with JSON."},
+                {
+                    "role": "system",
+                    "content": "You are Dadarzz Agent. Respond only with JSON.",
+                },
                 *conversation_history,
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
-            temperature=0.3
+            temperature=0.3,
         )
         ai_response = completion.choices[0].message.content.strip()
         conversation_history.append({"role": "assistant", "content": ai_response})
@@ -515,7 +681,10 @@ def choose_folder():
                         events.append({"type": "confirm", "command": cmd})
                     else:
                         output = execution(cmd)
-                        events.append({"type": "ran", "command": cmd, "output": output})
+                        simplified = simplify_output(cmd, output)
+                        events.append(
+                            {"type": "ran", "command": cmd, "output": simplified}
+                        )
                 elif "chat" in payload:
                     events.append({"type": "chat", "content": payload["chat"]})
             except json.JSONDecodeError:
@@ -529,16 +698,19 @@ def choose_folder():
         log.exception("Error in /api/choose-folder")
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/clear", methods=["POST"])
 def clear_memory():
     global conversation_history
     conversation_history = []
     return jsonify({"ok": True})
 
+
 @app.route("/api/platform", methods=["GET"])
 def get_platform():
     """Expose current platform to the frontend if needed."""
     return jsonify({"platform": OS_LABEL})
+
 
 # ==========================
 # AUTO-OPEN BROWSER
@@ -546,6 +718,7 @@ def get_platform():
 def open_browser():
     time.sleep(1.2)
     webbrowser.open("http://127.0.0.1:5174")
+
 
 # ==========================
 # ENTRY POINT
